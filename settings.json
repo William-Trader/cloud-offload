@@ -7,28 +7,27 @@
   ],
   "antiBan": true,
   "minIntervalMs": 15000,
-  "dailyCap": 400,
+  "dailyCap": 999,
   "performanceMode": "balanced",
   "taskType": "auto",
   "policy": {
     "enabled": true,
     "preset": "balanced",
-    "threshold": 500,
+    "threshold": 400,
     "allowTypes": {
       "write": true,
       "summary": true,
       "translate": true,
-      "code": true,
       "rewrite": true,
+      "code": true,
       "tag": true,
       "chat": false
     },
     "protectSensitive": true,
     "protectInteractive": true,
+    "notifyOnCloud": false,
     "windowStart": "",
     "windowEnd": "",
     "savedTarget": 0
-  },
-  "pollMs": 250,
-  "stableMs": 1500
+  }
 }

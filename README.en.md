@@ -99,10 +99,12 @@ The installer checks Node/Edge, creates a token, writes the plists with your own
 
 ## 10 Tests
 
-    node tests/run-tests.mjs         # functional + stress, 13 cases
+    node tests/run-tests.mjs         # functional + stress + complex tasks, 13 cases
+    node tests/code-tests.mjs        # code artifacts (py/html/json/sql/bash/js/regex), 8 cases, real syntax checks
+    node tests/edge-tests.mjs        # edge and error cases, 8 cases
     node tests/token-accuracy.mjs    # estimator accuracy (needs gpt-tokenizer)
 
-See docs/质量强度测试报告.md (Chinese).
+All 29 cases across three suites pass. See docs/质量强度测试报告.md (Chinese).
 
 ## 11 License
 PolyForm Noncommercial License 1.0.0 — no commercial / for-profit use or resale. See LICENSE.

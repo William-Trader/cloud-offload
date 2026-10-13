@@ -54,6 +54,7 @@ const DEFAULT_SETTINGS = {
 let settings = { ...DEFAULT_SETTINGS };
 try { if (fs.existsSync(SETTINGS_FILE)) settings = { ...settings, ...JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) }; } catch (e) {}
 function saveSettings() { try { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8'); } catch (e) {} }
+function deepMerge(base, patch) { const out = Object.assign({}, base); for (const k of Object.keys(patch || {})) { const v = patch[k]; if (v && typeof v === 'object' && !Array.isArray(v) && base && typeof base[k] === 'object' && !Array.isArray(base[k])) out[k] = deepMerge(base[k], v); else out[k] = v; } return out; }
 function applyTuning() { if (settings.stableMs) STABLE_MS = Number(settings.stableMs); if (settings.pollMs) POLL_MS = Number(settings.pollMs); }
 
 applyTuning();
@@ -90,7 +91,7 @@ async function evalJs(cmd, expression) {
 
 const COUNT = '(() => document.querySelectorAll(".answer-content-wrap").length)()';
 const LAST = '(() => { const a = document.querySelectorAll(".answer-content-wrap"); return a.length ? a[a.length - 1].innerText : ""; })()';
-const STATE = '(() => { const a = document.querySelectorAll(".answer-content-wrap"); const w = a.length ? a[a.length - 1] : null; const cls = w ? String(w.className) : ""; const thinking = /thinking/i.test(cls); let reg = false; if (w) { let box = w.parentElement; for (let d = 0; d < 4 && box; d++) { if (box.querySelector && box.querySelector(".regenerate-part,.regenerate")) { reg = true; break; } box = box.parentElement; } } const stop = Array.from(document.querySelectorAll("div,span,button,i")).find((e) => e.offsetParent && /^(停止|停止生成|停止回答)$/.test((e.textContent || "").trim())); return JSON.stringify({ n: a.length, thinking: thinking, reg: reg, len: w ? w.innerText.length : 0, stop: !!stop }); })()';
+const STATE = '(() => { const a = document.querySelectorAll(".answer-content-wrap"); const w = a.length ? a[a.length - 1] : null; const cls = w ? String(w.className) : ""; const thinking = /thinking/i.test(cls); let reg = false; if (w) { let box = w.parentElement; for (let d = 0; d < 4 && box; d++) { if (box.querySelector && box.querySelector(".regenerate-part,.regenerate")) { reg = true; break; } box = box.parentElement; } } const stop = Array.from(document.querySelectorAll("div,span,button,i")).find((e) => e.offsetParent && /^(停止|停止生成|停止回答)$/.test((e.textContent || "").trim())); const st = w ? w.innerText : ""; const busyText = /生成中|正在生成|思考中|Generating/.test(st); const statusOnly = st.length < 40 && /生成|代码/.test(st); const ps = document.querySelectorAll("pre"); const preLen = ps.length ? ps[ps.length - 1].innerText.length : 0; return JSON.stringify({ n: a.length, thinking: thinking, reg: reg, busyText: busyText, statusOnly: statusOnly, preLen: preLen, len: st.length, stop: !!stop }); })()';
 const TYPE_SYS = {
   write: '你是中文写作引擎。输出成篇正文，结构清晰，不要解释。',
   summary: '你是摘要引擎。输出要点列表，每条不超过 40 字，不要解释。',
@@ -147,11 +148,12 @@ async function askGLM(prompt, mode, system, model) {
       await sleep(POLL_MS);
       let s = {};
       try { s = JSON.parse((await evalJs(cmd, STATE)) || '{}'); } catch (e) { s = {}; }
-      const n = s.n || 0, thinking = !!s.thinking, reg = !!s.reg, len = s.len || 0, stop = !!s.stop;
+      const n = s.n || 0, thinking = !!s.thinking, reg = !!s.reg, len = s.len || 0, stop = !!s.stop, busyText = !!s.busyText, statusOnly = !!s.statusOnly, preLen = s.preLen || 0;
+      const waitingCode = statusOnly && preLen < 20;
       if (n > n0) started = true;
-      if (thinking || stop) sawBusy = true;
+      if (thinking || stop || busyText || waitingCode) sawBusy = true;
       if (started) {
-        if (thinking || stop) { lastChange = Date.now(); lastLen = len; }
+        if (thinking || stop || busyText || waitingCode) { lastChange = Date.now(); lastLen = len; }
         else if (reg) { done = true; break; }
         else if (len !== lastLen) { lastLen = len; lastChange = Date.now(); }
         else if (Date.now() - lastChange > STABLE_MS * 4) { done = true; break; }
@@ -159,6 +161,7 @@ async function askGLM(prompt, mode, system, model) {
     }
     if (!started) throw new Error('未检测到回答开始（页面可能未登录或改版）');
     let ans = ((await evalJs(cmd, LAST)) || '').trim();
+    if (ans.length < 40 && /生成|代码/.test(ans)) { const pre = await evalJs(cmd, '(()=>{const a=document.querySelectorAll("pre");return a.length?a[a.length-1].innerText.trim():"";})()'); if (pre && pre.length > ans.length) ans = String(pre).trim(); }
     const mk = ans.lastIndexOf('思考结束');
     if (mk >= 0) ans = ans.slice(mk + 4).trim();
     const mk2 = ans.lastIndexOf('深度思考');
@@ -205,6 +208,7 @@ function bumpDaily() { const k = new Date().toISOString().slice(0, 10); if (k !=
 
 async function offload(task, material, opts) {
   opts = opts || {};
+  if (!String(task || '').trim() && !String(material || '').trim()) throw new Error('空任务：task 与 material 均为空');
   return withLock(async () => {
     if (settings.antiBan && state.todayCount >= settings.dailyCap) throw new Error('已达每日上限 ' + settings.dailyCap + '（防封号）');
     await pace();
@@ -284,7 +288,7 @@ http.createServer(async (req, res) => {
   if (String(req.headers['authorization'] || '') !== 'Bearer ' + TOKEN && !isLocalReq(req)) return out(res, 401, { ok: false, error: 'unauthorized' });
   if (url.pathname === '/v1/models') return out(res, 200, { object: 'list', data: (settings.rotation || ['GLM-Flash']).map((m) => ({ id: m, object: 'model', owned_by: 'chatglm.cn' })) });
   if (url.pathname === '/api/settings' && req.method === 'GET') return out(res, 200, { ok: true, settings, state: { currentModel: state.currentModel, todayCount: state.todayCount, rotIdx: state.rotIdx } });
-  if (url.pathname === '/api/settings' && req.method === 'POST') { try { const b = JSON.parse(await readBody(req)); settings = { ...settings, ...b }; applyTuning(); saveSettings(); pushLog({ kind: 'settings', payload: b }); return out(res, 200, { ok: true, settings }); } catch (e) { return out(res, 400, { ok: false, error: String(e.message) }); } }
+  if (url.pathname === '/api/settings' && req.method === 'POST') { try { const b = JSON.parse(await readBody(req)); settings = deepMerge(settings, b); applyTuning(); saveSettings(); pushLog({ kind: 'settings', payload: b }); return out(res, 200, { ok: true, settings }); } catch (e) { return out(res, 400, { ok: false, error: String(e.message) }); } }
   if (url.pathname === '/api/stats') return out(res, 200, { ok: true, stats: ledgerStats(), state: { todayCount: state.todayCount, dailyCap: settings.dailyCap, antiBan: settings.antiBan, currentModel: state.currentModel } });
   if (url.pathname === '/api/logs') return out(res, 200, { ok: true, logs: state.logs });
   if (url.pathname === '/api/health-full') { let cdp = false, page = 0; try { const v = await j(CDP + '/json/version'); cdp = !!(v && v.Browser); const l = await j(CDP + '/json/list'); page = (Array.isArray(l) ? l : []).filter((t) => t.type === 'page' && /chatglm[.]cn/.test(t.url || '')).length; } catch (e) {} return out(res, 200, { ok: true, cdp, glmPages: page }); }

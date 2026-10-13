@@ -105,10 +105,12 @@
 
 ## 9 测试
 
-    node tests/run-tests.mjs         # 功能 + 压力，11 项
+    node tests/run-tests.mjs         # 功能 + 压力 + 复杂任务，13 项
+    node tests/code-tests.mjs        # 代码产物（py/html/json/sql/bash/js/regex），8 项，真实语法校验
+    node tests/edge-tests.mjs        # 边界与异常，8 项
     node tests/token-accuracy.mjs    # token 口径准确度（需 gpt-tokenizer）
 
-详见 docs/质量强度测试报告.md。
+三轮合计 **29 项全部通过**。详见 docs/质量强度测试报告.md。
 
 ## 10 许可
 PolyForm Noncommercial License 1.0.0 —— 禁止任何商业化 / 盈利使用 / 转售。见 LICENSE。
