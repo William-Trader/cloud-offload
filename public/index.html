@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cloud Offload · 云端算力控制台</title>
+<style>
+:root{
+  --bg:#070a0f;--bg2:#0b0f17;--card:rgba(19,24,34,.72);--card2:rgba(26,33,46,.6);
+  --line:rgba(255,255,255,.075);--line2:rgba(255,255,255,.14);
+  --fg:#e9edf5;--mut:#8b94a9;--dim:#5c6579;
+  --gold:#d9b56b;--gold2:#f3dda6;--ok:#3ddc97;--warn:#e0a94a;--bad:#ff6b5e;--blue:#5aa9ff;--violet:#a78bfa;
+  --r:16px;--shadow:0 18px 40px -20px rgba(0,0,0,.85);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;color:var(--fg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+  background:radial-gradient(1100px 620px at 10% -10%,rgba(217,181,107,.10),transparent 62%),
+    radial-gradient(900px 520px at 102% -4%,rgba(90,169,255,.09),transparent 58%),
+    radial-gradient(760px 520px at 46% 122%,rgba(61,220,151,.07),transparent 62%),
+    linear-gradient(180deg,var(--bg),var(--bg2));
+  background-attachment:fixed;-webkit-font-smoothing:antialiased;padding-bottom:40px;
+}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+header.top{
+  position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:14px 22px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(9,12,18,.92),rgba(9,12,18,.72));backdrop-filter:blur(14px) saturate(140%);
+}
+.brand{display:flex;align-items:center;gap:12px;margin-right:auto}
+.logo{
+  width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:20px;color:#1a1408;
+  background:linear-gradient(140deg,var(--gold2),var(--gold));box-shadow:0 6px 18px -6px rgba(217,181,107,.7);
+}
+.brand h1{font-size:15.5px;margin:0;letter-spacing:.4px}
+.brand .sub{font-size:11.5px;color:var(--dim);letter-spacing:.6px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;font-size:12px;padding:5px 11px;border-radius:999px;
+  border:1px solid var(--line2);color:var(--mut);background:rgba(255,255,255,.02);white-space:nowrap;
+  transition:.2s border-color,.2s color;
+}
+.chip .dot{width:7px;height:7px;border-radius:50%;background:var(--dim);box-shadow:0 0 0 0 rgba(0,0,0,0)}
+.chip.on{color:var(--ok);border-color:rgba(61,220,151,.34)}
+.chip.on .dot{background:var(--ok);animation:pulse 2.4s infinite}
+.chip.off{color:var(--bad);border-color:rgba(255,107,94,.32)}
+.chip.off .dot{background:var(--bad)}
+.chip.warnc{color:var(--warn);border-color:rgba(224,169,74,.34)}
+.chip.warnc .dot{background:var(--warn)}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(61,220,151,.55)}70%{box-shadow:0 0 0 7px rgba(61,220,151,0)}100%{box-shadow:0 0 0 0 rgba(61,220,151,0)}}
+#clock{font-size:12px;color:var(--dim)}
+main{max-width:1560px;margin:0 auto;padding:18px 18px 0;display:grid;gap:14px}
+.kpis{display:grid;gap:14px;grid-template-columns:1.35fr repeat(4,1fr)}
+@media(max-width:1080px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.card{
+  position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:16px 18px;box-shadow:var(--shadow);backdrop-filter:blur(10px) saturate(130%);
+  transition:transform .25s ease,border-color .25s ease;
+}
+.card:hover{transform:translateY(-2px);border-color:var(--line2)}
+.card h2{font-size:12.5px;margin:0 0 12px;color:var(--gold);font-weight:600;letter-spacing:.7px;text-transform:uppercase}
+.kpi{display:flex;flex-direction:column;justify-content:space-between;min-height:112px}
+.kpi .lbl{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px}
+.kpi .val{font-size:31px;font-weight:700;letter-spacing:-.5px;line-height:1.05;margin-top:6px}
+.bump{animation:bumpk .55s cubic-bezier(.22,1,.36,1)}
+@keyframes bumpk{0%{transform:translateY(-4px) scale(1.03);filter:brightness(1.6)}100%{transform:none;filter:none}}
+.kpi .val u{text-decoration:none;font-size:16px;color:var(--mut);font-weight:600;margin-left:3px}
+.kpi .foot{font-size:11.5px;color:var(--dim);margin-top:8px}
+.hero{display:flex;align-items:center;gap:20px;background:linear-gradient(135deg,rgba(217,181,107,.14),rgba(20,25,35,.55) 55%)}
+.hero .val{color:var(--gold2);font-size:40px}
+.spark{display:flex;align-items:flex-end;gap:2px;height:36px;margin-top:12px}
+.spark i{flex:1;min-width:2px;border-radius:2px;background:linear-gradient(180deg,var(--gold),rgba(217,181,107,.16));opacity:.9;transition:height .5s ease}
+.ring{position:relative;width:104px;height:104px;flex:0 0 auto}
+.ring svg{transform:rotate(-90deg);width:104px;height:104px}
+.ring circle{fill:none;stroke-width:3.2;stroke-linecap:round}
+.ring .bgc{stroke:rgba(255,255,255,.08)}
+.ring .fgc{stroke:url(#grad);transition:stroke-dashoffset .9s cubic-bezier(.22,1,.36,1)}
+.ring .rc{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+.ring .rc b{display:block;font-size:20px;color:var(--gold2)}
+.ring .rc span{font-size:10.5px;color:var(--dim)}
+.grid2c{display:grid;gap:14px;grid-template-columns:1.05fr 1fr}
+.grid3c{display:grid;gap:14px;grid-template-columns:1fr 1fr 1fr}
+@media(max-width:1180px){.grid2c,.grid3c{grid-template-columns:1fr}}
+label{display:block;font-size:11.5px;color:var(--mut);margin:9px 0 5px;letter-spacing:.3px}
+input,select,textarea{
+  width:100%;background:rgba(8,11,17,.85);border:1px solid var(--line2);color:var(--fg);
+  border-radius:10px;padding:9px 11px;font:inherit;outline:none;transition:.18s border-color,.18s box-shadow;
+}
+input:focus,select:focus,textarea:focus{border-color:rgba(217,181,107,.6);box-shadow:0 0 0 3px rgba(217,181,107,.12)}
+textarea{min-height:70px;resize:vertical;line-height:1.6}
+button{
+  background:linear-gradient(140deg,var(--gold2),var(--gold));color:#1a1408;border:0;border-radius:10px;
+  padding:9px 16px;font-weight:700;cursor:pointer;transition:.18s transform,.18s filter;font-size:13px;
+}
+button:hover{filter:brightness(1.06)}
+button:active{transform:translateY(1px)}
+button.ghost{background:rgba(255,255,255,.04);color:var(--fg);border:1px solid var(--line2);font-weight:500}
+button:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.spread{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.bar{height:8px;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--ok),var(--gold));transition:width .6s cubic-bezier(.22,1,.36,1)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:right;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left;color:var(--mut)}
+th{color:var(--dim);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom-color:var(--line2)}
+tbody tr:hover{background:rgba(255,255,255,.025)}
+.feed{max-height:190px;overflow:auto;font-size:11.8px;font-family:ui-monospace,Menlo,monospace;color:var(--mut);display:flex;flex-direction:column;gap:2px}
+.feed .li{display:flex;gap:9px;padding:3px 4px;border-radius:6px}
+.feed .li:hover{background:rgba(255,255,255,.03)}
+.feed .t{color:var(--dim);flex:0 0 auto}
+.pill{font-size:10.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--line2);flex:0 0 auto}
+.pill.c{color:var(--ok);border-color:rgba(61,220,151,.35);background:rgba(61,220,151,.08)}
+.pill.l{color:var(--warn);border-color:rgba(224,169,74,.35);background:rgba(224,169,74,.08)}
+.pill.e{color:var(--bad);border-color:rgba(255,107,94,.35)}
+.mut{color:var(--mut)}.dim{color:var(--dim)}.ok{color:var(--ok)}.bad{color:var(--bad)}.gold{color:var(--gold2)}
+.hint{font-size:11.5px;color:var(--dim);margin-top:6px}
+.sw{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut)}
+input[type=checkbox]{width:auto;accent-color:var(--gold);transform:scale(1.05)}
+input[type=range]{-webkit-appearance:none;appearance:none;height:26px;background:transparent;padding:0}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:linear-gradient(90deg,var(--gold),rgba(255,255,255,.12))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;margin-top:-5px;border-radius:50%;background:var(--gold2);box-shadow:0 0 0 4px rgba(217,181,107,.18)}
+.spin{width:13px;height:13px;border:2px solid rgba(255,255,255,.25);border-top-color:var(--gold2);border-radius:50%;display:inline-block;animation:sp .7s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.quick{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+.quick span{cursor:pointer;font-size:11.5px;padding:4px 10px;border-radius:999px;border:1px solid var(--line2);color:var(--mut);transition:.16s}
+.quick span:hover{color:var(--gold2);border-color:rgba(217,181,107,.5);background:rgba(217,181,107,.07)}
+.sep{height:1px;background:var(--line);margin:12px 0}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.22);background-clip:content-box}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3ddc97"/><stop offset="1" stop-color="#d9b56b"/></linearGradient></defs></svg>
+<header class="top">
+  <div class="brand">
+    <div class="logo">◈</div>
+    <div><h1>Cloud Offload</h1><div class="sub">云端算力控制台 · AGENT CONSOLE</div></div>
+  </div>
+  <div class="chips">
+    <span class="chip" id="c-api"><i class="dot"></i>API</span>
+    <span class="chip" id="c-cdp"><i class="dot"></i>CDP</span>
+    <span class="chip" id="c-page"><i class="dot"></i>chatglm 页</span>
+    <span class="chip warnc" id="c-model"><i class="dot"></i>模型 -</span>
+    <span class="chip" id="c-ab"><i class="dot"></i>防封号</span>
+    <span class="chip" id="c-policy"><i class="dot"></i>策略</span>
+  </div>
+  <span id="clock" class="mono"></span>
+</header>
+
+<main>
+  <section class="kpis">
+    <div class="card kpi hero">
+      <div>
+        <div class="lbl">累计节省 token</div>
+        <div class="val mono" id="s-saved">0</div>
+        <div class="foot" id="k-note">云端出活 · 本地只付指令</div>
+        <div id="spark" class="spark"></div>
+      </div>
+      <div class="ring">
+        <svg viewBox="0 0 36 36"><circle class="bgc" cx="18" cy="18" r="15.915"></circle><circle class="fgc" cx="18" cy="18" r="15.915" id="ring" stroke-dasharray="100 100" stroke-dashoffset="100"></circle></svg>
+        <div class="rc"><b class="mono" id="s-rate">0%</b><span>节省率</span></div>
+      </div>
+    </div>
+    <div class="card kpi"><div class="lbl">本地实花</div><div class="val mono" id="s-spent">0</div><div class="foot">实际进入本地上下文</div></div>
+    <div class="card kpi"><div class="lbl">本地自做（估算）</div><div class="val mono dim" id="s-would">0</div><div class="foot">若不卸载所需 token</div></div>
+    <div class="card kpi"><div class="lbl">云端调用</div><div class="val mono" id="s-calls">0</div><div class="foot" id="k-route">云端 0 · 本地 0</div></div>
+    <div class="card kpi"><div class="lbl">今日额度</div><div class="val mono" id="k-quota">0</div><div class="foot" id="k-quota-foot">防封号 · 0%</div>
+      <div class="bar" style="margin-top:10px"><i id="quotaBar"></i></div>
+    </div>
+  </section>
+
+  <section class="grid2c">
+    <div class="card">
+      <h2>运行任务</h2>
+      <div class="row" style="gap:12px">
+        <div style="flex:1;min-width:150px"><label>任务类型</label>
+          <select id="taskType">
+            <option value="auto">自动</option><option value="write">创作</option>
+            <option value="summary">摘要</option><option value="translate">翻译</option>
+            <option value="rewrite">改写</option><option value="code">编程</option><option value="tag">打标</option>
+          </select></div>
+        <div style="flex:1;min-width:150px"><label>模型</label><select id="model"><option value="">自动轮换</option></select></div>
+      </div>
+      <label>路由判定</label>
+      <input id="routeHint" readonly value="—" class="mono" style="color:var(--gold2)">
+      <label>指令（本地只花这一句）</label>
+      <textarea id="task" placeholder="例：写一篇 700 字短文，主题：云端算力卸载如何降低成本"></textarea>
+      <div class="quick" id="quick">
+        <span data-q="写一篇 700 字短文，主题：云端算力卸载如何降低成本" data-t="write">短文</span>
+        <span data-q="把下面材料压缩成 5 条要点，每条不超过 40 字" data-t="summary">摘要</span>
+        <span data-q="把下面材料翻译成英文，只给译文" data-t="translate">翻译</span>
+        <span data-q="写一个单文件 HTML 待办清单，带 localStorage" data-t="code">写代码</span>
+      </div>
+      <label>材料（可选；大材料直接给云端，不进本地上下文）</label>
+      <textarea id="material" placeholder="可留空"></textarea>
+      <label>输出文件（可选；填了就只回落盘回执，最省）</label>
+      <input id="out" placeholder="/tmp/out.md" class="mono">
+      <div class="row" style="margin-top:12px">
+        <button id="run">运行</button>
+        <button class="ghost" id="runFile">运行并写文件</button>
+        <button class="ghost" id="askRoute">问路由</button>
+        <span class="mut" id="runState" style="font-size:12px"></span>
+      </div>
+      <div class="bar" style="margin-top:12px"><i id="pb"></i></div>
+      <div id="result" class="mono" style="display:none;margin-top:12px;max-height:220px;overflow:auto;font-size:12px;color:var(--mut);background:rgba(8,11,17,.6);border:1px solid var(--line);border-radius:10px;padding:11px;white-space:pre-wrap"></div>
+    </div>
+
+    <div class="card">
+      <h2>路由策略</h2>
+      <div class="spread">
+        <span class="sw"><input type="checkbox" id="p-enabled"><label for="p-enabled" style="margin:0;color:var(--fg)">总开关 · 允许外包云端</label></span>
+        <select id="p-preset" style="width:auto">
+          <option value="conservative">保守 2000</option>
+          <option value="balanced">均衡 800</option>
+          <option value="aggressive">激进 300</option>
+        </select>
+      </div>
+      <label>阈值：本地预计 &gt; <b id="p-thv" class="gold mono">800</b> token 才外包</label>
+      <input id="p-threshold" type="range" min="200" max="5000" step="100">
+      <label>允许外包的类型</label>
+      <div class="row">
+        <label class="sw"><input type="checkbox" data-t="write">创作</label>
+        <label class="sw"><input type="checkbox" data-t="summary">摘要</label>
+        <label class="sw"><input type="checkbox" data-t="translate">翻译</label>
+        <label class="sw"><input type="checkbox" data-t="rewrite">改写</label>
+        <label class="sw"><input type="checkbox" data-t="code">编程</label>
+        <label class="sw"><input type="checkbox" data-t="tag">打标</label>
+        <label class="sw"><input type="checkbox" data-t="chat">交互问答</label>
+      </div>
+      <div class="sep"></div>
+      <label>保护规则（一票否决）</label>
+      <div class="row">
+        <label class="sw"><input type="checkbox" id="p-sens">含敏感信息 → 强制本地</label>
+        <label class="sw"><input type="checkbox" id="p-inter">用户等待中 → 强制本地</label>
+      </div>
+      <label>时段限制（可空）</label>
+      <div class="row">
+        <input id="p-ws" placeholder="00:00" style="flex:1" class="mono"><span class="dim">→</span><input id="p-we" placeholder="08:00" style="flex:1" class="mono">
+      </div>
+      <div class="row" style="margin-top:10px;gap:12px">
+        <div style="flex:1"><label>每日省 token 目标（0=不限）</label><input id="p-target" type="number" min="0" class="mono"></div>
+        <div style="flex:1"><label>最小间隔（秒）</label><input id="minInterval" type="number" min="0" class="mono"></div>
+        <div style="flex:1"><label>每日上限（次）</label><input id="dailyCap" type="number" min="1" class="mono"></div>
+      </div>
+      <div class="row" style="margin-top:12px"><button id="save">保存策略</button><span class="mut" id="saveState" style="font-size:12px"></span></div>
+      <div class="hint" id="targetHint"></div>
+    </div>
+  </section>
+
+  <section class="grid3c">
+    <div class="card">
+      <h2>模型明细</h2>
+      <table><thead><tr><th>模型</th><th>调用</th><th>均耗时</th><th>产出</th><th>省 token</th></tr></thead><tbody id="byModel"><tr><td colspan="5" class="dim">暂无</td></tr></tbody></table>
+    </div>
+    <div class="card">
+      <h2>决策审计</h2>
+      <div class="feed" id="dec"><div class="dim">—</div></div>
+    </div>
+    <div class="card">
+      <h2>调用日志</h2>
+      <div class="feed" id="log"><div class="dim">—</div></div>
+    </div>
+  </section>
+</main>
+
+<script>
+var $=function(id){return document.getElementById(id);};
+function api(p,opt){return fetch(p,opt).then(function(r){return r.json();});}
+function post(p,b){return api(p,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(b)});}
+function NL(){return String.fromCharCode(10);}
+function fmt(n){
+  n=Number(n)||0;var a=Math.abs(n);
+  if(a<1000)return String(Math.round(n));
+  if(a<1e6){var v=n/1e3;return (v>=100?Math.round(v):v.toFixed(1))+"k";}
+  if(a<1e9){var w=n/1e6;return (w>=100?Math.round(w):w.toFixed(1))+"M";}
+  return (n/1e9).toFixed(2)+"B";
+}
+function fmtInt(n){try{return (Number(n)||0).toLocaleString("en-US");}catch(e){return String(n);}}
+function estTok(s){s=String(s==null?"":s);var k=0,x=0,o=0;for(var i=0;i<s.length;i++){var c=s.codePointAt(i);if(c>0xFFFF)i++;if((c>=0x4E00&&c<=0x9FFF)||(c>=0x3400&&c<=0x4DBF)||(c>=0x3000&&c<=0x303F)||(c>=0xFF00&&c<=0xFFEF))k++;else if(c<128)x++;else o++;}return Math.ceil(k*1.06+x*0.305+o*0.9);}
+function countUp(el,to){
+  to=Number(to)||0;
+  var has=el.hasAttribute("data-v");
+  var from=Number(el.getAttribute("data-v")||0);
+  el.setAttribute("data-v",to);
+  el.textContent=fmt(to);
+  el.setAttribute("title","精确值："+fmtInt(to));
+  if(!has||from===to)return;
+  el.classList.remove("bump");void el.offsetWidth;el.classList.add("bump");
+  var t0=performance.now(),dur=620;
+  function step(t){var k=Math.min(1,(t-t0)/dur);var e=1-Math.pow(1-k,3);el.textContent=fmt(from+(to-from)*e);if(k<1)requestAnimationFrame(step);else el.textContent=fmt(to);}
+  requestAnimationFrame(step);
+  setTimeout(function(){el.textContent=fmt(to);},dur+120);
+}
+function setChip(el,ok,text,cls){
+  el.className="chip "+(cls||(ok?"on":"off"));
+  if(text)el.textContent="";
+  if(text){var d=document.createElement("i");d.className="dot";el.appendChild(d);el.appendChild(document.createTextNode(text));}
+}
+function clock(){var d=new Date();$("clock").textContent=d.toLocaleTimeString("zh-CN",{hour12:false});}
+setInterval(clock,1000);clock();
+
+function loadStatus(){
+  api("/health").then(function(h){
+    setChip($("c-api"),h.ok===true,"API "+(h.ok?"在线":"离线"));
+    if(h.model)setChip($("c-model"),true,"模型 "+h.model,"warnc");
+  }).catch(function(){setChip($("c-api"),false,"API 离线");});
+  api("/api/health-full").then(function(h){
+    setChip($("c-cdp"),!!h.cdp,"CDP "+(h.cdp?"就绪":"断开"));
+    setChip($("c-page"),h.glmPages>0,"chatglm 页 "+h.glmPages);
+  }).catch(function(){});
+  api("/v1/models").then(function(r){
+    var sel=$("model");if(!r||!r.data)return;
+    var cur=sel.value;
+    sel.innerHTML='<option value="">自动轮换</option>'+r.data.map(function(m){return '<option value="'+m.id+'">'+m.id+'</option>';}).join("");
+    sel.value=cur;
+  }).catch(function(){});
+}
+
+function loadSettings(){
+  api("/api/settings").then(function(r){
+    if(!r.ok)return;var s=r.settings,p=s.policy||{};
+    $("p-enabled").checked=!!p.enabled;
+    $("p-preset").value=p.preset||"balanced";
+    $("p-threshold").value=p.threshold||800;$("p-thv").textContent=p.threshold||800;
+    document.querySelectorAll("[data-t]").forEach(function(cb){cb.checked=!(p.allowTypes&&p.allowTypes[cb.getAttribute("data-t")]===false);});
+    $("p-sens").checked=!!p.protectSensitive;$("p-inter").checked=!!p.protectInteractive;
+    $("p-ws").value=p.windowStart||"";$("p-we").value=p.windowEnd||"";
+    $("p-target").value=p.savedTarget||0;
+    $("minInterval").value=Math.round((s.minIntervalMs||0)/1000);
+    $("dailyCap").value=s.dailyCap||400;
+    setChip($("c-policy"),!!p.enabled,"策略 "+(p.enabled?"开":"关")+" · "+(p.preset||"balanced"),p.enabled?"on":"off");
+  });
+}
+
+function loadStats(){
+  api("/api/stats").then(function(r){
+    if(!r.ok)return;var s=r.stats,st=r.state||{};
+    countUp($("s-saved"),s.saved||0);
+    countUp($("s-spent"),s.spent||0);
+    countUp($("s-would"),s.would||0);
+    countUp($("s-calls"),s.calls||0);
+    var rate=s.would>0?(100*s.saved/s.would):0;
+    $("s-rate").textContent=rate.toFixed(1)+"%";
+    $("ring").setAttribute("stroke-dashoffset",String(Math.max(0,100-rate)));
+    var rec=(s.recent||[]).slice(-40);
+    if(rec.length){var mx=Math.max(1,Math.max.apply(null,rec.map(function(x){return x.est_tokens_saved||0;})));
+      $("spark").innerHTML=rec.map(function(x){var h=Math.max(5,Math.round(100*(x.est_tokens_saved||0)/mx));return "<i style='height:"+h+"%'></i>";}).join("");}
+    $("k-note").textContent="总 token 基线 "+fmt(s.would)+" · 本地实花 "+fmt(s.spent)+" · 节约 "+rate.toFixed(1)+"%（省 "+fmtInt(s.saved)+" tok）";
+    $("k-route").textContent="云端 "+fmt(s.routeCloud||0)+" · 本地 "+fmt(s.routeLocal||0);
+    var cap=st.dailyCap||0,today=st.todayCount||0,pct=cap>0?Math.min(100,100*today/cap):0;
+    $("k-quota").textContent=today;
+    $("k-quota-foot").textContent="上限 "+fmtInt(cap)+" 次 · "+pct.toFixed(0)+"% · 防封号"+(st.antiBan?"开":"关");
+    $("quotaBar").style.width=Math.max(2,pct)+"%";
+    setChip($("c-ab"),!!st.antiBan,"防封号 "+(st.antiBan?"开":"关"),st.antiBan?"on":"warnc");
+    var tb=$("byModel");
+    tb.innerHTML=(s.byModel&&s.byModel.length)?s.byModel.map(function(m){
+      return "<tr><td>"+m.model+"</td><td class='mono'>"+fmt(m.calls)+"</td><td class='mono'>"+fmt(m.avg_ms)+"ms</td><td class='mono'>"+fmt(m.out)+"</td><td class='mono gold'>"+fmt(m.saved)+"</td></tr>";
+    }).join(""):'<tr><td colspan="5" class="dim">暂无</td></tr>';
+  });
+  api("/api/decisions").then(function(r){
+    if(!r.ok)return;
+    $("dec").innerHTML=r.decisions.length?r.decisions.slice(0,40).map(function(d){
+      var pl=d.use==="cloud"?"c":"l";
+      return '<div class="li"><span class="t">'+d.ts.slice(11,19)+'</span><span class="pill '+pl+'">'+(d.use==="cloud"?"云端":"本地")+'</span><span>'+d.type+' · est '+fmt(d.est)+'</span><span class="dim" style="margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px">'+d.reason+'</span></div>';
+    }).join(""):'<div class="dim">本会话暂无路由决策；发起一次任务即可看到判定理由。</div>';
+  });
+  api("/api/logs").then(function(r){
+    if(!r.ok)return;
+    $("log").innerHTML=r.logs.length?r.logs.slice(0,40).map(function(l){
+      var cls=l.kind==="error"?"e":"";
+      return '<div class="li"><span class="t">'+l.ts.slice(11,19)+'</span><span class="pill '+cls+'">'+(l.kind||"")+'</span><span>'+(l.model||"")+'</span><span class="mono">'+fmt(l.ms||0)+'ms</span><span class="gold" style="margin-left:auto">省 '+fmt(l.saved||0)+'</span></div>';
+    }).join(""):'<div class="dim">暂无调用日志。</div>';
+  });
+}
+
+function askRoute(){
+  var est=estTok(($("task").value||"")+($("material").value||""));
+  api("/api/route?est="+est+"&type="+$("taskType").value+"&interactive=false&sensitive=false").then(function(r){
+    if(r.ok)$("routeHint").value=(r.decision.use==="cloud"?"→ 云端  ":"→ 本地  ")+r.decision.reason+"  （est "+fmt(r.decision.est)+" tok）";
+  });
+}
+
+function run(writeFile){
+  var task=$("task").value.trim();
+  if(!task){$("runState").textContent="请填指令";return;}
+  var out=writeFile?($("out").value.trim()||"/tmp/cloud-offload-out.md"):"";
+  $("run").disabled=true;$("runFile").disabled=true;
+  $("runState").innerHTML='<span class="spin"></span> 运行中…';
+  $("result").style.display="none";
+  $("pb").style.width="8%";
+  var t=setInterval(function(){$("pb").style.width=Math.min(92,(parseFloat($("pb").style.width)||8)+3)+"%";},600);
+  post("/api/offload",{task:task,material:$("material").value,model:$("model").value||undefined,type:$("taskType").value}).then(function(r){
+    clearInterval(t);$("pb").style.width="100%";
+    if(!r.ok){$("runState").innerHTML='<span class="bad">失败: '+r.error+'</span>';}
+    else if(out){
+      post("/api/write",{path:out,content:r.answer}).then(function(w){
+        $("runState").innerHTML=w.ok?('<span class="ok">已写入 '+out+'</span> · '+fmt(r.answer.length)+' 字符 · '+fmt(r.metrics.ms)+'ms'):('<span class="bad">写失败 '+w.error+'</span>');
+        loadStats();
+      });
+    }else{
+      var tag=r.complete===false?'<span class="pill e">可能未跑完</span>':'<span class="pill c">完成</span>';
+      $("runState").innerHTML=tag+' '+fmt(r.metrics.ms)+'ms · '+fmt(r.answer.length)+' 字符 · 省 '+fmt(r.metrics.est_tokens_saved)+' tok';
+      $("result").style.display="block";$("result").textContent=r.answer;
+      loadStats();
+    }
+    $("run").disabled=false;$("runFile").disabled=false;askRoute();
+    setTimeout(function(){$("pb").style.width="0";},1400);
+  }).catch(function(e){clearInterval(t);$("pb").style.width="0";$("run").disabled=false;$("runFile").disabled=false;$("runState").innerHTML='<span class="bad">异常: '+e+'</span>';});
+}
+
+$("run").onclick=function(){run(false);};
+$("runFile").onclick=function(){run(true);};
+$("askRoute").onclick=askRoute;
+$("quick").onclick=function(e){var s=e.target.closest("span[data-q]");if(!s)return;$("task").value=s.getAttribute("data-q");$("taskType").value=s.getAttribute("data-t")||"auto";askRoute();};
+$("p-preset").onchange=function(){var th={conservative:2000,balanced:800,aggressive:300}[$("p-preset").value]||800;$("p-threshold").value=th;$("p-thv").textContent=th;};
+$("p-threshold").oninput=function(){$("p-thv").textContent=$("p-threshold").value;};
+$("save").onclick=function(){
+  var allow={};
+  document.querySelectorAll("[data-t]").forEach(function(cb){allow[cb.getAttribute("data-t")]=cb.checked;});
+  var b={minIntervalMs:Number($("minInterval").value)*1000,dailyCap:Number($("dailyCap").value),antiBan:true,policy:{
+    enabled:$("p-enabled").checked,preset:$("p-preset").value,threshold:Number($("p-threshold").value),allowTypes:allow,
+    protectSensitive:$("p-sens").checked,protectInteractive:$("p-inter").checked,
+    windowStart:$("p-ws").value.trim(),windowEnd:$("p-we").value.trim(),savedTarget:Number($("p-target").value||0)
+  }};
+  post("/api/settings",b).then(function(r){$("saveState").textContent=r.ok?"已保存":"失败 "+r.error;loadSettings();loadStats();setTimeout(function(){$("saveState").textContent="";},2000);});
+};
+
+loadStatus();loadSettings();loadStats();
+setInterval(loadStatus,5000);setInterval(loadStats,4000);
+</script>
+</body>
+</html>

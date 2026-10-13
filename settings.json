@@ -1,0 +1,34 @@
+{
+  "provider": "chatglm",
+  "model": "GLM-Flash",
+  "rotation": [
+    "GLM-Flash",
+    "GLM-5.3"
+  ],
+  "antiBan": true,
+  "minIntervalMs": 15000,
+  "dailyCap": 400,
+  "performanceMode": "balanced",
+  "taskType": "auto",
+  "policy": {
+    "enabled": true,
+    "preset": "balanced",
+    "threshold": 500,
+    "allowTypes": {
+      "write": true,
+      "summary": true,
+      "translate": true,
+      "code": true,
+      "rewrite": true,
+      "tag": true,
+      "chat": false
+    },
+    "protectSensitive": true,
+    "protectInteractive": true,
+    "windowStart": "",
+    "windowEnd": "",
+    "savedTarget": 0
+  },
+  "pollMs": 250,
+  "stableMs": 1500
+}

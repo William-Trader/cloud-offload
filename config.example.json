@@ -1,0 +1,21 @@
+{
+  "_comment": "复制为 settings.json 或直接在仪表盘修改。",
+  "provider": "chatglm",
+  "model": "GLM-Flash",
+  "rotation": ["GLM-Flash", "GLM-5.3"],
+  "antiBan": true,
+  "minIntervalMs": 15000,
+  "dailyCap": 400,
+  "policy": {
+    "enabled": true,
+    "preset": "balanced",
+    "threshold": 800,
+    "allowTypes": { "write": true, "summary": true, "translate": true, "rewrite": true, "code": true, "tag": true, "chat": false },
+    "protectSensitive": true,
+    "protectInteractive": true,
+    "notifyOnCloud": false,
+    "windowStart": "",
+    "windowEnd": "",
+    "savedTarget": 0
+  }
+}
