@@ -55,13 +55,16 @@ if (ok && outPath && outPath !== true) {
 }
 
 const receipt = written ? ('已写入 ' + written + '（' + text.length + ' 字符）') : text;
-const inTok = est(task) + est(material);
+const taskTok = est(task);
+const matTok = est(material);
 const outTok = est(text);
-const saved = inTok + outTok;
-const localSpent = est('OK ' + text.length + '字/' + Math.round(ms / 1000) + 's');
-const ifLocal = saved + localSpent;
+const overhead = 60;
+const baseline = taskTok + matTok + outTok;
+const localSpent = taskTok + est('OK ' + text.length + '字/' + Math.round(ms / 1000) + 's') + overhead;
+const saved = Math.max(0, baseline - localSpent);
+const ifLocal = baseline;
 
-const entry = { ts: new Date().toISOString(), ok, ms, task_chars: String(task).length, material_chars: material.length, out_chars: text.length, in_tokens: inTok, out_tokens: outTok, written: written, est_local_tokens_spent: localSpent, est_local_tokens_if_done_locally: ifLocal, est_tokens_saved: saved };
+const entry = { ts: new Date().toISOString(), ok, ms, task_chars: String(task).length, material_chars: material.length, out_chars: text.length, in_tokens: taskTok + matTok, out_tokens: outTok, tool_overhead: overhead, written: written, est_local_tokens_spent: localSpent, est_local_tokens_if_done_locally: ifLocal, est_tokens_saved: saved };
 try { fs.appendFileSync(LEDGER, JSON.stringify(entry) + String.fromCharCode(10)); } catch (e) {}
 
 if (!quiet) {

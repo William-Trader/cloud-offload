@@ -9,14 +9,16 @@ Offload token-hungry long tasks (long-form writing, summarization, translation, 
 ## 0 In one line
 Local sends an instruction -> cloud produces the artifact -> artifact is written straight to disk. Locally you only see size / latency / how many tokens were saved.
 
-## 1 Accounting (v3)
+## 1 Accounting (v4 · honest)
 
 | Quantity | Definition |
 |---|---|
-| Saved tokens | est(instruction) + est(material) + est(output) — **input + output both counted** |
-| Local spend | est(receipt) (compressed to about 4 tokens) |
-| Baseline | saved + local spend |
+| Baseline (if done locally) | est(instruction) + est(material) + est(output) |
+| Local spend | est(instruction) + est(inline material) + est(receipt) + tool overhead (default 60) |
+| Saved tokens | baseline - local spend (floor 0) |
 | **Savings ratio** | saved / baseline |
+
+Earlier versions counted only the receipt as local spend, inflating the ratio to 97%. Now the instruction itself, inline material and tool-call framing all count as local cost; material passed via --material-file (never in local context) counts fully as saving. Measured ratios land at **70-85%**, which is credible.
 
 On a cache hit: **zero cloud calls, zero waiting**, and the saving is still counted.
 

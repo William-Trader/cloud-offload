@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS = {
   antiBan: true,
   minIntervalMs: 15000,
   dailyCap: 400,
+  toolOverhead: 60,
   performanceMode: 'balanced',
   taskType: 'auto',
   policy: {
@@ -102,16 +103,28 @@ const TYPE_SYS = {
 const PLAIN_SYSTEM = '【角色】你是纯文本创作/加工引擎。只输出成品本身；禁止输出思考过程、推理、计划、要求复述或英文分析；不要询问；不要调用任何工具。' + NL + NL + '【任务】' + NL;
 const AGENT_SYSTEM = '【系统指令】需要调用本机工具时，只输出一个 JSON 对象：' + BT3 + 'bridge' + NL + '{"name":"工具名","args":{...}}' + NL + BT3 + ' 可用：run_shell{cmd}/read_file{path}/write_file{path,content}/list_dir{path}/http_get{url}。结果以 ' + BT3 + 'bridge-result 回给你。' + NL + NL + '【用户】' + NL;
 
+async function readModel(cmd) {
+  try {
+    const t = await evalJs(cmd, '(()=>{const e=document.querySelector(".search-box-wrapper .el-tooltip__trigger")||document.querySelector("span.el-tooltip__trigger")||document.querySelector(".model-select-name");return e?String(e.textContent||"").trim():"";})()');
+    const s = String(t || '');
+    const m = s.match(/GLM[-\s]?[A-Za-z0-9.]+/);
+    if (m) return m[0].replace(/\s+/g, '-').replace(/new$/i, '');
+    return s;
+  } catch (e) { return ''; }
+}
+
 async function switchModel(cmd, name) {
   if (!name) return false;
   try {
-    const cur = await evalJs(cmd, '(document.body.innerText||"")');
-    if (cur && cur.includes(name)) return true;
-    await evalJs(cmd, '(() => { const els = Array.from(document.querySelectorAll("[class*=model],button,div")); const t = els.find((e) => /GLM-/.test(e.textContent||"") && (e.textContent||"").length < 40 && e.offsetParent); if (t) { t.click(); return "open"; } return "no-btn"; })()');
-    await sleep(800);
-    const hit = await evalJs(cmd, '(() => { const want = ' + JSON.stringify(String(name)) + '; const els = Array.from(document.querySelectorAll("div,span,li")); const t = els.find((e) => (e.textContent||"").trim() === want && e.offsetParent); if (t) { t.click(); return "ok"; } return "miss"; })()');
-    await sleep(600);
-    return hit === 'ok';
+    const cur = await readModel(cmd);
+    const want = String(name).replace(/new$/i, '');
+    if (cur && cur.toLowerCase().indexOf(want.toLowerCase().slice(0, 6)) === 0) return true;
+    await evalJs(cmd, '(() => { const t = document.querySelector("span.el-tooltip__trigger") || document.querySelector(".think-mode-trigger"); if (t) { t.click(); return "open"; } return "no-btn"; })()');
+    await sleep(900);
+    const hit = await evalJs(cmd, '(() => { const want = ' + JSON.stringify(String(name)) + '.replace(/new$/i, ""); const els = Array.from(document.querySelectorAll(".item-model-box, .model-select-name, div, span")); const t = els.find((e) => e.offsetParent && String(e.textContent||"").trim().replace(/new$/i, "") === want); if (t) { t.click(); return "ok"; } return "miss"; })()');
+    await sleep(700);
+    const now = await readModel(cmd);
+    return !!(now && now.toLowerCase().indexOf(want.toLowerCase().slice(0, 6)) === 0);
   } catch (e) { return false; }
 }
 
@@ -131,7 +144,9 @@ async function askGLM(prompt, mode, system, model) {
     const cntNow = (await evalJs(cmd, COUNT)) || 0;
     if (cntNow > 36) { const ok = await resetChat(cmd); pushLog({ kind: 'reset', n: cntNow, ok: ok }); }
     let switched = null;
-    if (model) { switched = await switchModel(cmd, model); state.currentModel = model; }
+    if (model) { switched = await switchModel(cmd, model); }
+    const actualModel = await readModel(cmd);
+    if (actualModel) state.currentModel = actualModel;
     const text = (system || (mode === 'plain' ? PLAIN_SYSTEM : AGENT_SYSTEM)) + prompt;
     const setExpr = '(() => { const ta = document.querySelector("textarea"); if (!ta) return "no-textarea"; const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set; s.call(ta, ' + JSON.stringify(text) + '); ta.dispatchEvent(new Event("input", { bubbles: true })); ta.focus(); return "ok"; })()';
     const setRes = await evalJs(cmd, setExpr);
@@ -166,7 +181,7 @@ async function askGLM(prompt, mode, system, model) {
     if (mk >= 0) ans = ans.slice(mk + 4).trim();
     const mk2 = ans.lastIndexOf('深度思考');
     if (mk2 >= 0 && mk2 < 40) ans = ans.slice(mk2 + 4).trim();
-    return { answer: ans, ms: Date.now() - t0, switched, complete: done, truncated: !done, sawBusy };
+    return { answer: ans, ms: Date.now() - t0, switched, complete: done, truncated: !done, sawBusy, actualModel: actualModel };
   } finally { try { ws.close(); } catch (e) {} }
 }
 
@@ -230,13 +245,17 @@ async function offload(task, material, opts) {
       }
     }
     const est = (s) => { const t = String(s == null ? '' : s); let k = 0, x = 0, o = 0; for (const ch of t) { const c = ch.codePointAt(0); if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) || (c >= 0x3000 && c <= 0x303F) || (c >= 0xFF00 && c <= 0xFFEF)) k++; else if (c < 128) x++; else o++; } return Math.ceil(k * 1.06 + x * 0.305 + o * 0.9); };
-    const inTok = est(task) + est(material);
+    const taskTok = est(task);
+    const matTok = est(material);
     const outTok = est(answer);
-    const savedTok = inTok + outTok;
     const receipt = 'OK ' + answer.length + '字/' + Math.round(r.ms / 1000) + 's';
-    const spent = est(receipt);
-    const ifLocal = savedTok + spent;
-    const row = { ts: new Date().toISOString(), ok: !!answer, ms: r.ms, model, out_chars: answer.length, material_chars: (material || '').length, in_tokens: inTok, out_tokens: outTok, est_tokens_saved: savedTok, est_local_tokens_spent: spent, est_local_tokens_if_done_locally: ifLocal, cached: fromCache, switched: r.switched, truncated: !!r.truncated, complete: r.complete !== false };
+    const overhead = Number(settings.toolOverhead || 60);
+    const baseline = taskTok + matTok + outTok;
+    const spent = taskTok + matTok + est(receipt) + overhead;
+    const savedTok = Math.max(0, baseline - spent);
+    const ifLocal = baseline;
+    const usedModel = (r.actualModel && r.actualModel.length) ? r.actualModel : model;
+    const row = { ts: new Date().toISOString(), ok: !!answer, ms: r.ms, model: usedModel, want_model: model, out_chars: answer.length, material_chars: (material || '').length, in_tokens: taskTok + matTok, out_tokens: outTok, tool_overhead: overhead, est_tokens_saved: savedTok, est_local_tokens_spent: spent, est_local_tokens_if_done_locally: ifLocal, cached: fromCache, switched: r.switched, truncated: !!r.truncated, complete: r.complete !== false };
     try { fs.appendFileSync(LEDGER, JSON.stringify(row) + NL); } catch (e) {}
     pushLog({ kind: 'offload', model, ms: r.ms, out: answer.length, saved: row.est_tokens_saved });
     return { answer, row, complete: r.complete !== false, truncated: !!r.truncated };
