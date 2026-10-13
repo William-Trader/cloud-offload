@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // cloud-offload-api.mjs v2 — 本地网关：CDP 驱动 Edge 里的 chatglm.cn，带前端/设置/统计/防封轮换。
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +15,9 @@ let BRIDGE = process.env.BRIDGE_URL || 'http://127.0.0.1:8787';
 if (BRIDGE.endsWith('/')) BRIDGE = BRIDGE.slice(0, -1);
 const SETTINGS_FILE = path.join(HERE, 'settings.json');
 const LEDGER = path.join(HERE, 'token-ledger.jsonl');
+const CACHE_FILE = path.join(HERE, 'cache.json');
+let CACHE = {}; try { CACHE = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8')) || {}; } catch (e) { CACHE = {}; }
+function cacheSave() { try { fs.writeFileSync(CACHE_FILE, JSON.stringify(CACHE)); } catch (e) {} }
 const PUBLIC = path.join(HERE, 'public');
 const MAX_TURNS = Number(process.env.MAX_TOOL_TURNS || 4);
 let STABLE_MS = Number(process.env.STABLE_MS || 4500);
@@ -206,8 +210,11 @@ async function offload(task, material, opts) {
     await pace();
     const model = opts.model || nextModel();
     const prompt = material ? ('【材料】' + NL + material + NL + NL + '【任务】' + NL + task) : task;
-    const r = await askGLM(prompt, opts.agent ? 'agent' : 'plain', opts.system || '', model);
-    state.lastCallAt = Date.now(); bumpDaily();
+    const ckey = crypto.createHash('sha1').update(task + String.fromCharCode(1) + material + String.fromCharCode(1) + model + String.fromCharCode(1) + (opts.system || '')).digest('hex');
+    let r, fromCache = false;
+    if (settings.cache !== false && CACHE[ckey]) { r = { answer: CACHE[ckey], ms: 0, switched: false, complete: true, truncated: false }; fromCache = true; }
+    else { r = await askGLM(prompt, opts.agent ? 'agent' : 'plain', opts.system || '', model); if (r.answer && r.complete !== false) { CACHE[ckey] = r.answer; cacheSave(); } }
+    state.lastCallAt = Date.now(); if (!fromCache) bumpDaily();
     let answer = r.answer;
     if (opts.agent) {
       for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -219,11 +226,13 @@ async function offload(task, material, opts) {
       }
     }
     const est = (s) => { const t = String(s == null ? '' : s); let k = 0, x = 0, o = 0; for (const ch of t) { const c = ch.codePointAt(0); if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) || (c >= 0x3000 && c <= 0x303F) || (c >= 0xFF00 && c <= 0xFFEF)) k++; else if (c < 128) x++; else o++; } return Math.ceil(k * 1.06 + x * 0.305 + o * 0.9); };
+    const inTok = est(task) + est(material);
     const outTok = est(answer);
-    const receipt = '回执：已写入文件（' + answer.length + ' 字符, ' + r.ms + 'ms）';
-    const spent = est(task) + est(receipt);
-    const ifLocal = outTok + spent;
-    const row = { ts: new Date().toISOString(), ok: !!answer, ms: r.ms, model, out_chars: answer.length, material_chars: (material || '').length, out_tokens: outTok, est_local_tokens_spent: spent, est_local_tokens_if_done_locally: ifLocal, est_tokens_saved: outTok, switched: r.switched, truncated: !!r.truncated, complete: r.complete !== false };
+    const savedTok = inTok + outTok;
+    const receipt = 'OK ' + answer.length + '字/' + Math.round(r.ms / 1000) + 's';
+    const spent = est(receipt);
+    const ifLocal = savedTok + spent;
+    const row = { ts: new Date().toISOString(), ok: !!answer, ms: r.ms, model, out_chars: answer.length, material_chars: (material || '').length, in_tokens: inTok, out_tokens: outTok, est_tokens_saved: savedTok, est_local_tokens_spent: spent, est_local_tokens_if_done_locally: ifLocal, cached: fromCache, switched: r.switched, truncated: !!r.truncated, complete: r.complete !== false };
     try { fs.appendFileSync(LEDGER, JSON.stringify(row) + NL); } catch (e) {}
     pushLog({ kind: 'offload', model, ms: r.ms, out: answer.length, saved: row.est_tokens_saved });
     return { answer, row, complete: r.complete !== false, truncated: !!r.truncated };
@@ -248,16 +257,16 @@ function decideRoute(q) {
   const type = String(q.type || 'auto');
   const sensitive = String(q.sensitive) === 'true';
   const interactive = String(q.interactive) === 'true';
-  let use = 'cloud'; let reason = '预计 ' + est + ' tok 值得外包';
-  if (!p.enabled) { use = 'local'; reason = '总开关关闭'; }
-  else if (sensitive && p.protectSensitive) { use = 'local'; reason = '含敏感信息（保护规则）'; }
-  else if (interactive && p.protectInteractive) { use = 'local'; reason = '用户正在等待（交互态）'; }
-  else if (p.allowTypes && p.allowTypes[type] === false) { use = 'local'; reason = '类型 ' + type + ' 已禁用外包'; }
-  else if (est < (p.threshold || 800)) { use = 'local'; reason = '预计仅 ' + est + ' tok < 阈值 ' + (p.threshold || 800); }
-  else if (settings.antiBan && state.todayCount >= settings.dailyCap) { use = 'local'; reason = '今日额度已用完（防封号）'; }
-  else if (p.windowStart && p.windowEnd) { const h = new Date().getHours(); const a = Number(p.windowStart.slice(0,2)); const b = Number(p.windowEnd.slice(0,2)); const inWin = a <= b ? (h >= a && h < b) : (h >= a || h < b); if (!inWin) { use = 'local'; reason = '不在允许时段 ' + p.windowStart + '-' + p.windowEnd; } }
-  else if (p.savedTarget > 0) { const st = ledgerStats(); if (st.saved >= p.savedTarget) { use = 'local'; reason = '已达今日省 token 目标 ' + p.savedTarget; } }
-  const rec = { ts: new Date().toISOString(), est, type, sensitive, interactive, use, reason };
+  let use = 'cloud'; let reason = '预计 ' + est + ' tok 值得外包'; let code = 'worth_offloading';
+  if (!p.enabled) { use = 'local'; reason = '总开关关闭'; code = 'master_off'; }
+  else if (sensitive && p.protectSensitive) { use = 'local'; reason = '含敏感信息（保护规则）'; code = 'sensitive'; }
+  else if (interactive && p.protectInteractive) { use = 'local'; reason = '用户正在等待（交互态）'; code = 'interactive'; }
+  else if (p.allowTypes && p.allowTypes[type] === false) { use = 'local'; reason = '类型 ' + type + ' 已禁用外包'; code = 'type_disabled'; }
+  else if (est < (p.threshold || 800)) { use = 'local'; reason = '预计仅 ' + est + ' tok < 阈值 ' + (p.threshold || 800); code = 'below_threshold'; }
+  else if (settings.antiBan && state.todayCount >= settings.dailyCap) { use = 'local'; reason = '今日额度已用完（防封号）'; code = 'quota'; }
+  else if (p.windowStart && p.windowEnd) { const h = new Date().getHours(); const a = Number(p.windowStart.slice(0,2)); const b = Number(p.windowEnd.slice(0,2)); const inWin = a <= b ? (h >= a && h < b) : (h >= a || h < b); if (!inWin) { use = 'local'; reason = '不在允许时段 ' + p.windowStart + '-' + p.windowEnd; code = 'window'; } }
+  else if (p.savedTarget > 0) { const st = ledgerStats(); if (st.saved >= p.savedTarget) { use = 'local'; reason = '已达今日省 token 目标 ' + p.savedTarget; code = 'target_reached'; } }
+  const rec = { ts: new Date().toISOString(), est, type, sensitive, interactive, use, reason, code };
   ROUTE_LOG.unshift(rec); ROUTE_LOG.length = Math.min(ROUTE_LOG.length, 200);
   return rec;
 }
@@ -302,6 +311,8 @@ http.createServer(async (req, res) => {
     catch (e) { return out(res, 200, { ok: false, error: String(e.message) }); }
   }
   if (url.pathname === '/api/reset' && req.method === 'POST') { try { const page = await pickPage(); const { ws, cmd } = await connect(page.webSocketDebuggerUrl); let ok = false; try { await cmd('Runtime.enable'); ok = await resetChat(cmd); } finally { try { ws.close(); } catch (e) {} } return out(res, 200, { ok: ok }); } catch (e) { return out(res, 200, { ok: false, error: String(e.message) }); } }
+  if (url.pathname === '/api/cache' && req.method === 'GET') return out(res, 200, { ok: true, size: Object.keys(CACHE).length, enabled: settings.cache !== false });
+  if (url.pathname === '/api/cache' && req.method === 'DELETE') { CACHE = {}; cacheSave(); return out(res, 200, { ok: true, size: 0 }); }
   if (url.pathname === '/api/route') return out(res, 200, { ok: true, decision: decideRoute(Object.fromEntries(url.searchParams)) });
   if (url.pathname === '/api/decisions') return out(res, 200, { ok: true, decisions: ROUTE_LOG.slice(0, 30) });
   return out(res, 404, { ok: false, error: 'not found' });

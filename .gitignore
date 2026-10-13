@@ -5,3 +5,4 @@ token-ledger.legacy.jsonl
 shot.png
 .DS_Store
 bench/node_modules/
+cache.json

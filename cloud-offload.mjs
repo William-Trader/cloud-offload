@@ -55,12 +55,13 @@ if (ok && outPath && outPath !== true) {
 }
 
 const receipt = written ? ('已写入 ' + written + '（' + text.length + ' 字符）') : text;
-const localSpent = est(task) + est(sys && sys !== true ? sys : '') + est(receipt);
+const inTok = est(task) + est(material);
 const outTok = est(text);
-const ifLocal = outTok + localSpent;
-const saved = outTok;
+const saved = inTok + outTok;
+const localSpent = est('OK ' + text.length + '字/' + Math.round(ms / 1000) + 's');
+const ifLocal = saved + localSpent;
 
-const entry = { ts: new Date().toISOString(), ok, ms, task_chars: String(task).length, material_chars: material.length, out_chars: text.length, out_tokens: outTok, written: written, est_local_tokens_spent: localSpent, est_local_tokens_if_done_locally: ifLocal, est_tokens_saved: saved };
+const entry = { ts: new Date().toISOString(), ok, ms, task_chars: String(task).length, material_chars: material.length, out_chars: text.length, in_tokens: inTok, out_tokens: outTok, written: written, est_local_tokens_spent: localSpent, est_local_tokens_if_done_locally: ifLocal, est_tokens_saved: saved };
 try { fs.appendFileSync(LEDGER, JSON.stringify(entry) + String.fromCharCode(10)); } catch (e) {}
 
 if (!quiet) {

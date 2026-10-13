@@ -1,20 +1,28 @@
 # Cloud Offload · 云端算力卸载层
 
+[English](README.en.md) | 中文
+
 把「烧 token 的长任务」（长文创作、摘要、翻译、改写、长代码）外包给**云端网页算力**；本地只发一句指令、只收一条回执，**正文不进本地上下文**。
 
 ![仪表盘](docs/screenshot-dashboard.png)
 
+> 前端支持中英切换（右上角 EN / 中 按钮）：
+
+![Dashboard EN](docs/screenshot-dashboard-en.png)
+
 ## 0 一句话
 本地发指令 → 云端出成品 → 成品直接落盘；本地只看到字数 / 耗时 / 省了多少 token。
 
-## 1 计算口径（v2，已简化）
+## 1 计算口径（v3）
 
 | 量 | 定义 |
 |---|---|
-| 节约 token | = 云端本次**产出**的 token（本地本来要自己写这些） |
-| 本地实花 | = est(指令) + est(回执) |
+| 节约 token | = est(指令) + est(材料) + est(产出) —— **输入+输出全纳入** |
+| 本地实花 | = est(回执)（已压到约 4 token） |
 | 总 token（基线） | = 节约 + 本地实花 |
 | **节约占比** | = 节约 / 总 token |
+
+命中结果缓存时：**0 次云端调用、0 等待**，节约照样计入。
 
 于是**每一次云端调用都会让"节约"增长**（等于产出规模）。
 
@@ -89,6 +97,7 @@
     public/index.html       仪表盘（单文件 SPA，无外部依赖）
     settings.json           路由策略
     token-ledger.jsonl      账本
+    cloud-offload-batch.mjs 复杂任务协作（本地拆解 → 云端分段 → 本地拼装）
     tests/                  测试套件（功能/压力/口径准确度）
     docs/                   测试报告、截图
     scripts/install.sh      一键安装
