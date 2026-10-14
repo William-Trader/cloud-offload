@@ -20,6 +20,8 @@ Local sends an instruction -> cloud produces the artifact -> artifact is written
 
 Earlier versions counted only the receipt as local spend, inflating the ratio to 97%. Now the instruction itself, inline material and tool-call framing all count as local cost; material passed via --material-file (never in local context) counts fully as saving. Measured ratios land at **70-85%**, which is credible.
 
+**Then subtract local re-reads**: any body pulled back into context for review/delivery must be logged (`node cloud-offload-reread.mjs --chars <n> --what "<note>"`), or the ratio stays optimistic. `ledger-report.mjs` now prints **gross** and **net**. Measured: re-reading the 6,026-char poem once drops the net ratio from **74.0% to 54.7%**. Verify with machine assertions (`--check`) instead of `cat`.
+
 On a cache hit: **zero cloud calls, zero waiting**, and the saving is still counted.
 
 Estimator (calibrated against gpt-tokenizer cl100k_base):
@@ -39,6 +41,9 @@ Read the skill first: workshop-skills/cloud-offload/SKILL.md.
 - **Use when**: expected output > ~800 tokens — long articles, reports, long code, full-document summary/translation/rewrite; or material of thousands of characters.
 - **Do not use for**: interactive Q&A, greetings, short replies, multi-turn follow-ups, or private/secret content.
 - **Steps**: health check -> optional route check -> dispatch with --out -> verify (complete:true and truncated:false).
+- **Complex tasks**: `cloud-offload-batch.mjs --spec plan.json --out report.md` (decompose locally -> generate in parts -> assemble locally); or let the cloud plan it with `cloud-offload-plan.mjs --brief "<need>" --parts 9 --out plan.json`.
+- **Verify without re-reading**: pass `--assert/--forbid/--min-cjk` at dispatch and read a single `[assert] PASS|FAIL` line plus `<out>.receipt.json`; re-check an existing file with `--check <file>` (zero cloud calls).
+- **Do not poll long jobs**: `cloud-offload-job.mjs --task "..." --out out.md --wait-timeout 300000` (POST `/api/jobs` -> one blocking `GET /api/jobs/<id>/wait`; two HTTP calls, one tool round-trip).
 - **Hard rules**: never pull the body into local context; stay serial; degrade to local on failure, retry at most twice.
 
 ## 4 Complex tasks: collaborative execution
@@ -51,6 +56,12 @@ plan.json:
     { "title": "...", "type": "write", "model": "GLM-Flash", "parts": [ { "heading": "...", "task": "..." } ] }
 
 Measured: a 4-part report assembled into a 5037-byte document, 89% savings ratio.
+
+Let the cloud write the plan instead of hand-writing plan.json:
+
+    node cloud-offload-plan.mjs --brief "Write a 5000-word Jiangjinjiu" --parts 9 --out plan.json
+
+It strips JSON fences, validates fields, retries once, and checks the part count. Offline self-test: `node cloud-offload-plan.mjs --selftest`.
 
 ## 5 Install & configure (any agent / any machine)
 Requirements: macOS (launchd), Node.js >= 20, Microsoft Edge, one logged-in chatglm.cn account.
@@ -93,6 +104,9 @@ The installer checks Node/Edge, creates a token, writes the plists with your own
     cloud-offload-api.mjs   CDP-driven chatglm in Edge; serves /api/* and OpenAI-compatible /v1/*
     cloud-offload.mjs       CLI: --task / --material-file / --out / --system
     cloud-offload-batch.mjs CLI: complex tasks, decompose -> generate parts -> assemble
+    cloud-offload-plan.mjs  cloud-generated plan (one brief -> plan.json)
+    cloud-offload-job.mjs   async job API: submit + one blocking wait (no polling)
+    cloud-offload-reread.mjs log local re-reads (gross vs net savings)
     bridge.mjs              local tool bridge (run_shell / read_file / write_file / list_dir / http_get)
     public/index.html       dashboard (single-file SPA, no external deps, zh/en toggle)
     tests/                  functional / stress / token-accuracy tests

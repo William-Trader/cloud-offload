@@ -8,12 +8,13 @@
   "antiBan": true,
   "minIntervalMs": 15000,
   "dailyCap": 999,
+  "toolOverhead": 60,
   "performanceMode": "balanced",
   "taskType": "auto",
   "policy": {
     "enabled": true,
     "preset": "balanced",
-    "threshold": 400,
+    "threshold": 800,
     "allowTypes": {
       "write": true,
       "summary": true,
@@ -21,7 +22,7 @@
       "rewrite": true,
       "code": true,
       "tag": true,
-      "chat": false
+      "chat": true
     },
     "protectSensitive": true,
     "protectInteractive": true,

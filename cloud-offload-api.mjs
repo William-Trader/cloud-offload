@@ -298,6 +298,19 @@ const out = (res, code, obj) => { res.writeHead(code, { 'content-type': 'applica
 const readBody = (req) => new Promise((r) => { let d = ''; req.on('data', (c) => { d += c; }); req.on('end', () => r(d)); });
 const isLocalReq = (req) => { const a = (req.socket && req.socket.remoteAddress) || ''; return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1'; };
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+// ---- 异步任务（E）：提交即返回 jobId，本地一次阻塞等待即可，无需反复轮询 ----
+const JOBS = new Map();
+let JOB_SEQ = 0;
+function jobNew(kind, meta) {
+  const id = 'j' + (++JOB_SEQ) + '-' + crypto.createHash('sha1').update(String(Date.now()) + Math.random()).digest('hex').slice(0, 8);
+  const job = { id, kind, status: 'running', startedAt: Date.now(), endedAt: 0, meta: meta || {}, result: null, error: null };
+  JOBS.set(id, job);
+  if (JOBS.size > 50) { const first = JOBS.keys().next().value; if (first && first !== id) JOBS.delete(first); }
+  return job;
+}
+function jobView(job) {
+  return { ok: true, id: job.id, kind: job.kind, status: job.status, startedAt: job.startedAt, endedAt: job.endedAt, ms: job.endedAt ? job.endedAt - job.startedAt : Date.now() - job.startedAt, error: job.error, answer: job.status === 'done' ? job.result.answer : undefined, complete: job.result ? job.result.complete : undefined, truncated: job.result ? job.result.truncated : undefined, metrics: job.result ? job.result.row : undefined };
+}
 
 http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
@@ -336,6 +349,28 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/api/reset' && req.method === 'POST') { try { const page = await pickPage(); const { ws, cmd } = await connect(page.webSocketDebuggerUrl); let ok = false; try { await cmd('Runtime.enable'); ok = await resetChat(cmd); } finally { try { ws.close(); } catch (e) {} } return out(res, 200, { ok: ok }); } catch (e) { return out(res, 200, { ok: false, error: String(e.message) }); } }
   if (url.pathname === '/api/cache' && req.method === 'GET') return out(res, 200, { ok: true, size: Object.keys(CACHE).length, enabled: settings.cache !== false });
   if (url.pathname === '/api/cache' && req.method === 'DELETE') { CACHE = {}; cacheSave(); return out(res, 200, { ok: true, size: 0 }); }
+  if (url.pathname === '/api/jobs' && req.method === 'POST') {
+    let b; try { b = JSON.parse(await readBody(req)); } catch (e) { return out(res, 400, { ok: false, error: 'bad json' }); }
+    const sys = b.system || TYPE_SYS[b.type] || '';
+    const job = jobNew('offload', { type: b.type || '', task_chars: String(b.task || '').length });
+    offload(String(b.task || ''), String(b.material || ''), { model: b.model, agent: b.agent, system: sys })
+      .then((r) => { job.status = 'done'; job.result = r; job.endedAt = Date.now(); })
+      .catch((e) => { job.status = 'error'; job.error = String(e && e.message || e); job.endedAt = Date.now(); });
+    return out(res, 202, { ok: true, id: job.id, status: job.status });
+  }
+  if (url.pathname === '/api/jobs' && req.method === 'GET') return out(res, 200, { ok: true, jobs: Array.from(JOBS.values()).map((jb) => ({ id: jb.id, kind: jb.kind, status: jb.status, ms: jb.endedAt ? jb.endedAt - jb.startedAt : Date.now() - jb.startedAt })) });
+  if (url.pathname.indexOf('/api/jobs/') === 0) {
+    const parts = url.pathname.split('/').filter(Boolean);
+    const job = JOBS.get(parts[2]);
+    if (!job) return out(res, 404, { ok: false, error: 'no such job' });
+    if (parts[3] === 'wait') {
+      const timeout = Math.min(Number(url.searchParams.get('timeout') || 300000) || 300000, 300000);
+      const t0 = Date.now();
+      while (job.status === 'running' && Date.now() - t0 < timeout) await sleep(1000);
+      return out(res, 200, jobView(job));
+    }
+    return out(res, 200, jobView(job));
+  }
   if (url.pathname === '/api/route') return out(res, 200, { ok: true, decision: decideRoute(Object.fromEntries(url.searchParams)) });
   if (url.pathname === '/api/decisions') return out(res, 200, { ok: true, decisions: ROUTE_LOG.slice(0, 30) });
   return out(res, 404, { ok: false, error: 'not found' });

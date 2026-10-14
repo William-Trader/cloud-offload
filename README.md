@@ -24,6 +24,8 @@
 
 说明：早期版本只把「回执」当作本地实花，占比虚高到 97%。现在把**指令本身、内联材料、工具调用框架开销**都计入本地成本；材料若用 --material-file 传入（不进本地上下文）才全额计入节约。实测占比落在 **70–85%**，可信。
 
+**再扣「本地回读」**：为核对/交付把正文读回上下文的部分必须记账（`node cloud-offload-reread.mjs --chars <读回字符数> --what "<说明>"`），否则口径仍偏乐观。`ledger-report.mjs` 现在同时输出**毛省**与**净省**。实测：把 6026 字的《将进酒》回读一次，净节省率由 **74.0% 掉到 54.7%**。所以验收走机器断言（`--check`），**不要 `cat` 全文**。
+
 命中结果缓存时：**0 次云端调用、0 等待**，节约照样计入。
 
 于是**每一次云端调用都会让"节约"增长**（等于产出规模）。
@@ -45,6 +47,9 @@
 - **何时用**：预计成品 > 约 800 token —— 长文、报告、长代码、整篇摘要/翻译/改写；或材料数千字以上。
 - **何时不用**：交互问答、寒暄、短答复、多轮追问；含隐私/密钥内容。
 - **步骤**：验服务 → 判路由（可选）→ 发指令并 --out 落盘 → 验收（complete:true 且 truncated:false）。
+- **复杂任务协作**：`cloud-offload-batch.mjs --spec plan.json --out report.md`（本地拆解 → 云端分段 → 本地拼装）；不想手写 plan.json 就用 `cloud-offload-plan.mjs --brief "<写作需求>" --parts 9 --out plan.json` 让云端出计划。
+- **验收不许回读正文**：批量任务发指令时就带 `--assert/--forbid/--min-cjk`，跑完只看一行 `[assert] PASS|FAIL` 与 `<out>.receipt.json`；复检既有文件用 `--check <文件>`（零云端调用）。
+- **长任务别反复 poll**：`cloud-offload-job.mjs --task "…" --out out.md --wait-timeout 300000`（POST `/api/jobs` 拿 jobId → 单次阻塞 `GET /api/jobs/<id>/wait`；本地只有两次 HTTP、一轮工具调用）。
 - **硬规矩**：成品正文不读进本地上下文；串行不并发；失败本地降级，最多重试 2 次。
 
 ## 4 安装与设置（通用化：任意 agent / 任意机器）
@@ -100,6 +105,9 @@
     settings.json           路由策略
     token-ledger.jsonl      账本
     cloud-offload-batch.mjs 复杂任务协作（本地拆解 → 云端分段 → 本地拼装）
+    cloud-offload-plan.mjs  让云端出计划（一句 brief → plan.json）
+    cloud-offload-job.mjs   异步任务接口：提交 + 单次阻塞等待（不轮询）
+    cloud-offload-reread.mjs 把「本地回读」如实记账（毛省/净省）
     tests/                  测试套件（功能/压力/口径准确度）
     docs/                   测试报告、截图
     scripts/install.sh      一键安装
@@ -113,6 +121,8 @@
     node tests/token-accuracy.mjs    # token 口径准确度（需 gpt-tokenizer）
 
 三轮合计 **29 项全部通过**。详见 docs/质量强度测试报告.md。
+
+规划器另带离线自检：`node cloud-offload-plan.mjs --selftest`。
 
 ## 10 许可
 PolyForm Noncommercial License 1.0.0 —— 禁止任何商业化 / 盈利使用 / 转售。见 LICENSE。

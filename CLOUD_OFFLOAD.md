@@ -122,3 +122,61 @@ GET http://127.0.0.1:8788/api/route?est=<预计本地token>&type=<类型>&intera
 - 硬上限 300s（`ANSWER_TIMEOUT_MS`），不再有 60s 砍断。
 - CDP 调用 20s 超时，避免页面卡死把网关锁死。
 - 旧逻辑 `Math.min(ANSWER_TIMEOUT_MS, 60000)` 与"静止即完成"是"任务没跑完"的两大根因，已移除。
+
+## 9. 防「本地回读」与「本地写计划」（v2 增补，实测）
+
+### 9.1 batch 断言：验收零回读
+`cloud-offload-batch.mjs` 新增机械断言，**正文不进本地上下文，只回一行 PASS/FAIL**：
+```
+node cloud-offload-batch.mjs --spec plan.json --out out.md \
+  --assert "结尾标记" --assert "关键词" \
+  --forbid "TODO" --forbid "[A-Za-z]{4,}" \
+  --min-chars 5000 --min-cjk 4000
+```
+- `--assert`：必须命中的正则（可重复）；`--forbid`：必须不出现的正则（可重复）；`--min-chars/--min-cjk`：长度下限。
+- 跑完写 `out.md.receipt.json`（段数/字符/汉字/断言结果）；**断言失败 exit 3**，成功 exit 0。
+- **离线复检**：`--check <文件>` 直接对既有文件跑断言，**不调云端**（返工时零成本）。
+
+### 9.2 把「规划」也外包：cloud-offload-plan.mjs
+以前 plan.json 由本地模型手写（每个 task 都是一次本地生成）。现在让云端出计划，本地只写文件：
+```
+node cloud-offload-plan.mjs --brief "写一篇5000字的将进酒" --parts 9 --out /tmp/plan.json
+# → [plan] OK 章节=9, title=..., 已写入 /tmp/plan.json
+node cloud-offload-plan.mjs --selftest   # 离线验证 JSON 解析/校验逻辑
+```
+自带 JSON 围栏剥离、`{...}` 抽取、字段校验、**失败自动重试 1 次**、章节数校验；失败 exit 4。
+
+### 9.3 诚实账本：把「本地回读」也记进去
+旧口径 `节约 = 云端产出` 忽略了一个真实现象：本地为**核对/交付**又把正文读回上下文。
+```
+node cloud-offload-reread.mjs --chars 6026 --what "回读将进酒全文"
+node ledger-report.mjs
+# 毛省≈tok / 本地回读≈tok / 净省≈tok / 净节省率
+```
+**实测**：28 次调用毛省 15413 tok（74.0%）；仅如实记入「回读将进酒 6026 字符」，净省降到 11395（54.7%）。
+=> 结论：**用 `--check`+断言验收，每验收一次省掉一次整篇回读（实测约 4000 tok）。**
+
+### 9.4 已知不可用（风控）
+自动化会话会被 chatglm.cn 弹**滑动验证页**（`/json/list` 标题 = 「滑动验证页面」），此后 `/api/offload` 报 `未检测到回答开始`，**须人工过一次滑块/重新登录**才能恢复。这不是代码 bug，是本方案的固有运维风险。
+
+## 10. 异步任务：一次等待，不轮询（v2 增补，实测）
+以前长任务要「后台跑 + 反复 `process poll`」——实测一轮 10 段任务 poll ~20 次，**每次都是一次本地工具往返（本地 token）**。现在网关提供异步任务接口，提交即返回 jobId，客户端**单次阻塞等待**即可。
+
+**HTTP**：
+```
+POST /api/jobs            {task, material?, type?, model?}  → 202 {ok,id,status:'running'}
+GET  /api/jobs                        → 列出最近任务（≤50，自动 LRU）
+GET  /api/jobs/<id>                   → 当前状态（running|done|error）
+GET  /api/jobs/<id>/wait?timeout=ms   → 长轮询：完成或超时再返回（上限 300000）
+```
+任务在服务端后台跑，复用同一 `offload()`（含缓存、限流、账本、日志）。
+
+**客户端（推荐）**：
+```
+node ~/openclaw资产库/cloud-offload/cloud-offload-job.mjs --task "<指令>" --out out.md --type write --wait-timeout 300000
+# → [job] OK（jobId=..., 12345ms, 812 字符） 已写入 out.md     exit 0
+#   非 done → [job] ✗ error: ...                             exit 1
+```
+本地只有两次 HTTP + 一轮工具调用，**不再轮询**。实测（本地 stub）：done→exit 0 并落盘、error→exit 1。
+
+**时序**：提交立刻返回（本地几毫秒）；`wait` 是单次阻塞请求，agent 只需**一次**工具调用等它回来。仍受 300s 回答硬上限约束。
